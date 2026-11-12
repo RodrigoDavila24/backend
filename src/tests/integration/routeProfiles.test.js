@@ -1,6 +1,7 @@
 const { sequelize } = require('../../config/database');
 const routeProfileRepository = require('../../repositories/routeProfileRepository');
 const userRepository = require('../../repositories/userRepository');
+const exclusiveShadeSun = require('../../repositories/migrations/20261112000001-exclusive-shade-sun');
 
 const newUser = (email) => userRepository.createUser({ name: 'Ana', email, passwordHash: 'x' });
 
@@ -132,6 +133,38 @@ describe('route profiles (PostgreSQL)', () => {
         `INSERT INTO route_profiles (user_id, name, shade_weight, sun_weight, wind_weight) VALUES (${ana.id}, 'Mal', 0, 0, 101)`
       )
     ).rejects.toThrow();
+  });
+
+  it('migration exclusive-shade-sun keeps the larger weight and then forbids both (ADR-030)', async () => {
+    const queryInterface = sequelize.getQueryInterface();
+    const ana = await newUser('ana@correo.es');
+    // Without the constraint, as before the migration, with routes saved with both weights.
+    await exclusiveShadeSun.down(queryInterface);
+    await sequelize.query(
+      `INSERT INTO route_profiles (user_id, name, shade_weight, sun_weight) VALUES
+         (${ana.id}, 'Más sombra', 60, 20),
+         (${ana.id}, 'Más sol', 10, 70),
+         (${ana.id}, 'Empate', 40, 40),
+         (${ana.id}, 'Solo sombra', 50, 0)`
+    );
+
+    const fixed = await exclusiveShadeSun.up(queryInterface);
+
+    expect(fixed).toBe(3);
+    const [rows] = await sequelize.query(
+      'SELECT name, shade_weight AS shade, sun_weight AS sun FROM route_profiles ORDER BY id'
+    );
+    expect(rows).toEqual([
+      { name: 'Más sombra', shade: 60, sun: 0 },
+      { name: 'Más sol', shade: 0, sun: 70 },
+      { name: 'Empate', shade: 0, sun: 0 },
+      { name: 'Solo sombra', shade: 50, sun: 0 }
+    ]);
+    await expect(
+      sequelize.query(
+        `INSERT INTO route_profiles (user_id, name, shade_weight, sun_weight) VALUES (${ana.id}, 'Mal', 30, 30)`
+      )
+    ).rejects.toThrow(/route_profiles_exclusive_shade_sun/);
   });
 
   it('gives a wind weight of 0 to routes saved without one', async () => {
