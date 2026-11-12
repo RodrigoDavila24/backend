@@ -237,3 +237,68 @@ describe('weighted route selection with wind (PBI-8.2)', () => {
     });
   });
 });
+
+describe('vegetation weight (PBI-10 phase B, ADR-031)', () => {
+  // The fastest route has no green; the greener ones are longer.
+  const green = (id, duration, greenPercentage, status = 'available') => ({
+    id,
+    duration,
+    exposure: { status: 'unavailable', shadePercentage: null, sunPercentage: null },
+    vegetation: { status, greenPercentage: status === 'available' ? greenPercentage : null }
+  });
+  const greenCandidates = [green('fast', 600, 0), green('park', 740, 90), green('avenue', 630, 40)];
+
+  it('penalises what is not green: 100 − % green', () => {
+    expect(exposurePenalty(greenCandidates[0], { vegetation: 100 })).toBe(100);
+    expect(exposurePenalty(greenCandidates[1], { vegetation: 100 })).toBe(10);
+    expect(weightedCost(greenCandidates[1], { vegetation: 100 })).toBeCloseTo(740 * 1.1);
+  });
+
+  it('chooses a greener alternative within the extra time, and says how much greener', () => {
+    const result = selectWeightedRoute(greenCandidates, { vegetation: 100 });
+
+    expect(result).toMatchObject({
+      status: 'selected',
+      selected: { id: 'park' },
+      additionalDurationSeconds: 140,
+      greenChangePercentagePoints: 90
+    });
+  });
+
+  it('with a lower weight accepts less extra time for the green', () => {
+    expect(selectWeightedRoute(greenCandidates, { vegetation: 30 }).selected.id).toBe('avenue');
+  });
+
+  it('without vegetation weight the green does not count', () => {
+    expect(selectWeightedRoute(greenCandidates, { vegetation: 0, wind: 0 })).toMatchObject({
+      status: 'no_better_alternative',
+      selected: null
+    });
+  });
+
+  it('does not exceed the extra time allowed', () => {
+    expect(
+      selectWeightedRoute(greenCandidates, { vegetation: 100 }, { maxDurationFactor: 1.1 })
+    ).toMatchObject({ selected: { id: 'avenue' } });
+  });
+
+  it('cannot compare without the green percentage of the fastest route', () => {
+    const withoutData = [green('fast', 600, 0, 'unavailable'), greenCandidates[1]];
+    expect(selectWeightedRoute(withoutData, { vegetation: 100 }).status).toBe(
+      'insufficient_exposure_data'
+    );
+  });
+
+  it('adds up with shade: a shaded park wins over a sunny one', () => {
+    const both = [
+      { ...green('fast', 600, 0), exposure: route('fast', 600, 10).exposure },
+      { ...green('sunny park', 660, 90), exposure: route('x', 660, 10).exposure },
+      { ...green('shaded park', 660, 90), exposure: route('y', 660, 70).exposure }
+    ];
+    expect(selectWeightedRoute(both, { shade: 50, vegetation: 50 })).toMatchObject({
+      selected: { id: 'shaded park' },
+      shadeChangePercentagePoints: 60,
+      greenChangePercentagePoints: 90
+    });
+  });
+});

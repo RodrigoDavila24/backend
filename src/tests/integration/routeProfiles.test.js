@@ -167,6 +167,36 @@ describe('route profiles (PostgreSQL)', () => {
     ).rejects.toThrow(/route_profiles_exclusive_shade_sun/);
   });
 
+  it('saves the vegetation weight, 0 for the presets and the routes saved without one', async () => {
+    const ana = await newUser('ana@correo.es');
+    const presets = await routeProfileRepository.listForUser(ana.id);
+    expect(presets.every(({ weights }) => weights.vegetation === 0)).toBe(true);
+
+    const green = await routeProfileRepository.createForUser(ana.id, {
+      name: 'Verde',
+      weights: { shade: 0, sun: 0, wind: 0, vegetation: 70 },
+      maxDetourPercentage: 25
+    });
+    expect(green.weights).toEqual({ shade: 0, sun: 0, wind: 0, vegetation: 70 });
+    const updated = await routeProfileRepository.updateForUser(ana.id, green.id, {
+      name: 'Verde',
+      weights: { shade: 30, sun: 0, wind: 0, vegetation: 100 },
+      maxDetourPercentage: 10
+    });
+    expect(updated.weights).toEqual({ shade: 30, sun: 0, wind: 0, vegetation: 100 });
+
+    await sequelize.query(
+      `INSERT INTO route_profiles (user_id, name, shade_weight, sun_weight) VALUES (${ana.id}, 'Antigua', 20, 0)`
+    );
+    const all = await routeProfileRepository.listForUser(ana.id);
+    expect(all.find(({ name }) => name === 'Antigua').weights.vegetation).toBe(0);
+    await expect(
+      sequelize.query(
+        `INSERT INTO route_profiles (user_id, name, shade_weight, sun_weight, vegetation_weight) VALUES (${ana.id}, 'Mal', 0, 0, 101)`
+      )
+    ).rejects.toThrow();
+  });
+
   it('gives a wind weight of 0 to routes saved without one', async () => {
     const ana = await newUser('ana@correo.es');
     await sequelize.query(
