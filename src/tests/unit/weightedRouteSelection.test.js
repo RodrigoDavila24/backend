@@ -302,3 +302,21 @@ describe('vegetation weight (PBI-10 phase B, ADR-031)', () => {
     });
   });
 });
+
+describe('names of the saved routes (#165)', () => {
+  it('reserves "Recomendada" for the recommended route, without case or spaces', () => {
+    ['Recomendada', ' recomendada ', 'RECOMENDADA'].forEach((name) => {
+      expect(() => parseProfileInput({ name, weights: { shade: 50 } })).toThrow(
+        expect.objectContaining({
+          status: 400,
+          fields: { name: '«Recomendada» es la ruta automática: elige otro nombre.' }
+        })
+      );
+    });
+  });
+
+  it('accepts names that only look like it: accents and extra words count', () => {
+    expect(parseProfileInput({ name: 'Recomendáda', weights: {} }).name).toBe('Recomendáda');
+    expect(parseProfileInput({ name: 'Recomendada 2', weights: {} }).name).toBe('Recomendada 2');
+  });
+});
