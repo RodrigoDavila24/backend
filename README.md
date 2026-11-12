@@ -852,7 +852,41 @@ Cuerpo `{ "name": "Verano", "weights": { "shade": 80, "sun": 0, "wind": 20 }, "m
 válidos, o si `shade` y `sun` son mayores que 0 a la vez (`fields.shade` y `fields.sun`: "Elige sombra
 o sol, no los dos a la vez."; ver ADR-030 en DECISIONS.md, en la carpeta docs del Drive del equipo;
 `POST /api/routes/weighted` responde igual), `409` si el nombre ya existe para ese usuario o tiene ya 20 rutas, y `404` si la ruta no es
-suya.
+suya. Ver "Nombres repetidos (#165)" justo debajo.
+
+#### Nombres repetidos (#165)
+
+Los nombres de las rutas de un usuario son únicos **sin distinguir mayúsculas ni espacios al
+principio o al final** ("Verano" = " verano "); **las tildes sí cuentan** ("Rapida" y "Rápida" son
+nombres distintos). Lo decide el índice único `route_profiles_user_name_idx`
+`(user_id, lower(btrim(name)))`. Otro usuario puede usar el mismo nombre.
+
+- Crear o renombrar con un nombre ya usado → `409` con el mensaje en `fields.name` y el id de la
+  ruta que ya lo tiene en `existingId`, para que el frontend ofrezca reemplazarla. Lo responde el
+  controlador de `/api/route-profiles` (el `errorHandler` solo pasa `message` y `fields`). Respuesta
+  real (2026-11-12) a `POST` con `"name": " sombreada "`:
+
+  ```json
+  {
+    "error": {
+      "message": "Ya tienes una ruta llamada «Sombreada».",
+      "fields": { "name": "Ya tienes una ruta llamada «Sombreada»." },
+      "existingId": 52
+    }
+  }
+  ```
+
+  El otro `409` (ya tiene 20 rutas) no trae `existingId`.
+- **"Recomendada" está reservado** (es la ruta automática de la PBI-9.1, no una ruta guardada): `400`
+  con `fields.name` "«Recomendada» es la ruta automática: elige otro nombre.", sin distinguir
+  mayúsculas ni espacios.
+- Migración `20261112000003-unique-route-profile-names`: antes de crear el índice recorta los
+  espacios de los nombres guardados, renombra los repetidos a "X (2)", "X (3)"... (la ruta más
+  antigua se queda el nombre; la base se recorta para no pasar de 40 caracteres) y renombra las
+  rutas llamadas "Recomendada" a "Recomendada (2)". Escribe en el log cuántas de cada tipo, p. ej.
+  `INFO unique-route-profile-names: 0 name(s) trimmed, 0 repeated name(s) renamed and 0 route(s)
+  called "Recomendada" renamed`; conviene apuntarlo al desplegar. El `down` vuelve al índice
+  `(user_id, lower(name))`; los nombres corregidos no se recuperan.
 
 ### `DELETE /api/route-profiles/:id`
 
@@ -1165,6 +1199,22 @@ códigos controlados que `/api/routes/fastest`; si el cálculo de sombras supera
 pero no añade migraciones ni dependencias.
 
 ## Checklist de verificación manual
+
+### Nombres de ruta repetidos (#165)
+
+Con la migración aplicada (`npm run db:migrate`), el servidor arrancado y `$h` como en la checklist
+de la PBI-9.1.
+
+- [ ] `npm run db:migrate` escribe en el log cuántos nombres ha recortado y renombrado (0 en una BD
+      sin repetidos).
+- [ ] `POST /api/route-profiles` con `"name": " sombreada "` → `409` con "Ya tienes una ruta llamada
+      «Sombreada»." en `fields.name` y `existingId` (el id de Sombreada).
+- [ ] `PUT` de otra ruta con `"name": "SOLEADA"` → `409` con el `existingId` de Soleada; con su propio
+      nombre en mayúsculas → `200`.
+- [ ] `"name": "recomendada"` → `400` con "«Recomendada» es la ruta automática: elige otro nombre.".
+- [ ] `"name": "Rapida"` (sin tilde) se guarda: las tildes cuentan.
+- [ ] `npm run ci` y `npm run test:all` pasan (`uniqueRouteProfileNames.test.js`,
+      `routeProfiles.test.js` y la integración `routeProfiles.test.js`).
 
 ### PBI-10 (fase B) - La vegetación en las rutas
 
