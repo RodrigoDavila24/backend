@@ -490,6 +490,13 @@ para crearlo están en [deploy/README.md](deploy/README.md).
   (60000): radio de los árboles, tramos por lote y tiempo máximo de cada lote del índice de
   vegetación (`src/config/vegetationConfig.js`; ver ADR-026 en el `docs/DECISIONS.md` del
   workspace). Son opcionales; el radio no puede superar `ASSOC_TREE_RADIUS_M`.
+- `RECOMMENDATION_HOT_APPARENT_TEMPERATURE_C` (26), `RECOMMENDATION_COLD_APPARENT_TEMPERATURE_C` (9),
+  `RECOMMENDATION_WIND_SPEED_KMH` (30), `RECOMMENDATION_WIND_GUSTS_KMH` (50),
+  `RECOMMENDATION_WIND_WEIGHT` (50), `RECOMMENDATION_CIERZO_FROM_DEG` (270) y
+  `RECOMMENDATION_CIERZO_TO_DEG` (340): umbrales de la ruta recomendada
+  (`src/config/recommendationConfig.js`; ver ADR-029 en DECISIONS.md, en la carpeta docs del Drive
+  del equipo). Son opcionales; el peso del viento debe ser un entero de 0 a 100. La elevación solar
+  mínima es la de `SHADOW_MIN_SUN_ELEVATION_DEG`.
 - `ORS_API_KEY`: clave de API de OpenRouteService / HeiGIT que usan el autocompletado y el cálculo
   de rutas. Guárdala solo en el `backend/.env` ignorado por Git o en el entorno del servidor.
   `OPENROUTESERVICE_API_KEY` sigue funcionando como alternativa para configuraciones antiguas.
@@ -514,9 +521,12 @@ para crearlo están en [deploy/README.md](deploy/README.md).
 ## Meteorología actual (PBI-7)
 
 `GET /api/weather/current` requiere sesión. Consulta Open-Meteo Forecast para el centro de Zaragoza
-(`41.6488, -0.8891`), solicita `temperature_2m`, `wind_speed_10m` y `wind_direction_10m`, y fija
-`timezone=Europe/Madrid`. Devuelve `{ weather }` con valores y unidades del proveedor, hora local
-del dato, zona horaria y fecha de consulta. Una caché en memoria de cinco minutos evita llamadas
+(`41.6488, -0.8891`), solicita `temperature_2m`, `apparent_temperature`, `wind_speed_10m`,
+`wind_gusts_10m` y `wind_direction_10m`, y fija `timezone=Europe/Madrid`. Devuelve `{ weather }` con
+valores y unidades del proveedor, hora local del dato, zona horaria y fecha de consulta.
+`apparentTemperature` (sensación térmica) y `windGusts` (rachas) se añadieron en la PBI-9.1 para la
+ruta recomendada y son opcionales: valen `null` si el proveedor no los da, sin que la respuesta deje
+de ser válida. Una caché en memoria de cinco minutos evita llamadas
 redundantes; peticiones simultáneas comparten la misma llamada en curso. Los errores del proveedor
 se traducen a errores controlados. No se necesita clave ni variable de entorno nueva.
 
@@ -802,6 +812,75 @@ pesos a 0, `fastest_only` (solo se pide la ruta rápida).
   está más resguardada). `shadeChangePercentagePoints` es `null` si no hay sombras.
 - `wind` no válido (velocidad de 0 a 200 km/h, dirección de 0 a 360°) → `400` con `fields`.
 
+## Ruta recomendada (PBI-9.1)
+
+`POST /api/routes/recommended` elige los pesos de la ruta con el tiempo actual de Open-Meteo y la
+altura del Sol, y calcula la ruta con ellos igual que `POST /api/routes/weighted`. Requiere sesión,
+como el resto de `/api/routes`. La regla es una función pura
+(`src/domain/routes/routeRecommendation.js`) con los umbrales en `src/config/recommendationConfig.js`;
+está explicada en el ADR-029 y el flujo en ROUTING.md: ver DECISIONS.md y ROUTING.md en la carpeta
+docs del Drive del equipo.
+
+### Petición
+
+Solo `origin` y `destination`. La ruta es siempre para ahora (hora de Zaragoza), porque el tiempo es
+el actual: `date`, `time` o `timeZone` → `400` con `fields`. Puntos fuera de Zaragoza → `400`, sin
+llamar a Open-Meteo ni a OpenRouteService.
+
+```json
+{
+  "origin": { "lat": 41.651386, "lng": -0.881746 },
+  "destination": { "lat": 41.633463, "lng": -0.896436 }
+}
+```
+
+### Regla (ADR-029)
+
+Sensación térmica (`apparent_temperature`; si Open-Meteo no la da, `temperature_2m`), viento medio,
+rachas y elevación solar en el origen. Sombra y sol reutilizan los pesos de las rutas predefinidas
+(Sombreada y Soleada); el viento, `RECOMMENDATION_WIND_WEIGHT`. Tiempo extra: 25 %.
+
+| `criterion` | Condición | Pesos (sombra/sol/viento) |
+| --- | --- | --- |
+| `hot` | Sol ≥ 10°, sensación ≥ 26 °C, sin viento fuerte | 50 / 0 / 0 |
+| `cold` | Sol ≥ 10°, sensación ≤ 9 °C, sin viento fuerte | 0 / 50 / 0 |
+| `windy` | Sol ≥ 10°, entre 9 y 26 °C, viento ≥ 30 km/h o rachas ≥ 50 km/h | 0 / 0 / 50 |
+| `mild` | Sol ≥ 10°, entre 9 y 26 °C, sin viento fuerte | 0 / 0 / 0 (rápida) |
+| `hot_windy` | calor y viento fuerte | 50 / 0 / 50 |
+| `cold_windy` | frío y viento fuerte | 0 / 50 / 50 |
+| `low_sun` | Sol < 10° (noche o Sol bajo) o posición solar no disponible, sin viento fuerte | 0 / 0 / 0 (rápida) |
+| `low_sun_windy` | Sol < 10° o posición solar no disponible, y viento fuerte | 0 / 0 / 50 |
+| `weather_unavailable` | Open-Meteo falla o faltan datos | 0 / 0 / 0 (rápida) |
+
+Con la dirección entre 270° y 340° el texto dice "cierzo" en vez de "viento fuerte"; los pesos no
+cambian. Si Open-Meteo falla la respuesta es `200` con la ruta rápida y el motivo (no hay `5xx`).
+El tiempo se pide una sola vez por petición y se reutiliza la caché de cinco minutos de la PBI-7.
+Si no se puede calcular la posición solar (por ejemplo, en la hora repetida del cambio al horario de
+invierno, que es ambigua) la ruta tampoco falla: "Sol no disponible", sin sombra ni sol,
+`sun.elevationDeg: null` y la ruta calculada con el mismo instante en UTC.
+
+### Respuesta
+
+`{ "comparison": { ... } }` con los mismos campos que `POST /api/routes/weighted` (`status`,
+`weights`, `wind`, `fastest`, `selected`, `additionalDurationSeconds`,
+`shadeChangePercentagePoints`, `windChangePoints`, `candidatesEvaluated`, `strategy`) más
+`recommendation`:
+
+- `criterion` (tabla de arriba) y `label` (texto corto, p. ej. "Calor y cierzo").
+- `weights` (`shade`, `sun`, `wind`, de 0 a 100) y `maxDetourPercentage`: lo aplicado.
+- `reason`: el motivo, en una frase para el usuario.
+- `weather`: `temperature`, `apparentTemperature`, `windSpeed`, `windGusts`, `windDirection`,
+  `observedAt` (hora local del dato de Open-Meteo), `timeZone` y `source`; `null` si no hay tiempo.
+  `apparentTemperature` y `windGusts` son `null` si Open-Meteo no los da.
+- `sun.elevationDeg`: elevación solar en el origen, en grados (`null` si no se pudo calcular).
+- `calculatedAt`: `date`, `time` y `timeZone` del cálculo (`UTC` si no se pudo calcular el Sol).
+- `rules`: las condiciones que deciden el caso, cada una con `variable` (`apparentTemperature`,
+  `temperature`, `windSpeed`, `windGusts` o `sunElevation`), `operator`, `threshold`, `value` y
+  `unit`.
+
+Con todos los pesos a 0 `status` es `fastest_only`: solo se pide la ruta rápida y
+`fastest.exposure` no viene (no se calculan sombras).
+
 ## Contrato de la ruta rápida (PBI-2)
 
 `POST /api/routes/fastest`
@@ -948,6 +1027,48 @@ códigos controlados que `/api/routes/fastest`; si el cálculo de sombras supera
 pero no añade migraciones ni dependencias.
 
 ## Checklist de verificación manual
+
+### PBI-9.1 - Ruta recomendada
+
+Con el servidor arrancado (`npm run dev`), en PowerShell. Hay que registrarse primero (una vez, con
+tu propio email y contraseña) y luego iniciar sesión:
+
+```powershell
+$api = 'http://localhost:3000/api'
+$cred = @{ email = '<tu email>'; password = '<tu contraseña>' }
+Invoke-RestMethod -Method Post "$api/auth/register" -ContentType 'application/json' `
+  -Body ($cred + @{ name = '<tu nombre>' } | ConvertTo-Json)   # solo la primera vez
+$login = Invoke-RestMethod -Method Post "$api/auth/login" -ContentType 'application/json' `
+  -Body ($cred | ConvertTo-Json)
+$h = @{ Authorization = "Bearer $($login.token)" }
+$body = @{ origin = @{ lat = 41.651386; lng = -0.881746 };
+  destination = @{ lat = 41.633463; lng = -0.896436 } } | ConvertTo-Json
+$rec = (Invoke-RestMethod -Method Post "$api/routes/recommended" -Headers $h `
+  -ContentType 'application/json' -Body $body).comparison
+$rec.recommendation | ConvertTo-Json -Depth 4
+$fast = (Invoke-RestMethod -Method Post "$api/routes/fastest" -Headers $h `
+  -ContentType 'application/json' -Body $body).route
+"Recomendada: $($rec.fastest.duration) s / $($rec.selected.duration) s · Rápida: $($fast.duration) s"
+```
+
+- [ ] `recommendation` trae `criterion`, `label`, `weights`, `maxDetourPercentage`, `reason`,
+      `weather` (con la misma hora que `GET /api/weather/current`), `sun`, `calculatedAt` y `rules`.
+- [ ] Los pesos y el `criterion` siguen la tabla de la sección "Ruta recomendada (PBI-9.1)" con el
+      tiempo que devuelve `weather`.
+- [ ] Prueba real del 2026-11-12 a las 11:23 (Open-Meteo de las 11:15: 18 °C, sensación 17,5 °C,
+      viento de 12,9 km/h desde 300°, rachas de 29,2 km/h; Sol a 27,5°): `criterion: "mild"`
+      ("Tiempo templado"), pesos 0/0/0, motivo "Temperatura agradable (sensación de 18 °C) y poco
+      viento (13 km/h): la ruta recomendada es la más rápida.", `status: "fastest_only"`.
+      - Plaza España (41.651386, -0.881746) → Parque Grande (41.633463, -0.896436): 33,3 min y
+        2777 m, la misma geometría que `POST /api/routes/fastest` (610 ms).
+      - Plaza del Pilar (41.657204, -0.880394) → Plaza San Francisco (41.641356, -0.895734): 30,5 min
+        y 2543 m, también la ruta rápida (101 ms, con el tiempo ya en caché).
+- [ ] Con `date` y `time` en el cuerpo → `400` con `fields.date` y `fields.time`.
+- [ ] Sin la cabecera `Authorization` → `401`.
+- [ ] `GET /api/weather/current` devuelve también `apparentTemperature` y `windGusts`.
+- [ ] Los demás casos (calor, frío, viento, combinaciones, noche y fallo de Open-Meteo) los cubren
+      `src/tests/unit/routeRecommendation.test.js` y `src/tests/recommendedRoute.test.js`, con
+      Open-Meteo y OpenRouteService simulados: `npm run ci`.
 
 ### PBI-10 (fase A) - Índice de vegetación por tramo
 
