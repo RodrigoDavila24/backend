@@ -6,7 +6,12 @@ async function getCurrentWeather() {
   const url = new URL(OPEN_METEO_URL);
   url.searchParams.set('latitude', String(ZARAGOZA.latitude));
   url.searchParams.set('longitude', String(ZARAGOZA.longitude));
-  url.searchParams.set('current', 'temperature_2m,wind_speed_10m,wind_direction_10m');
+  // Apparent temperature and gusts are optional: the recommended route (PBI-9.1, ADR-029) uses them
+  // when present.
+  url.searchParams.set(
+    'current',
+    'temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,wind_direction_10m'
+  );
   url.searchParams.set('timezone', 'Europe/Madrid');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

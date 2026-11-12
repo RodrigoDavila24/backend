@@ -45,6 +45,8 @@ describe('GET /api/weather/current', () => {
       temperature: 18.5,
       windSpeed: 7.2,
       windDirection: 240,
+      apparentTemperature: null,
+      windGusts: null,
       timeZone: 'Europe/Madrid'
     });
     expect(second.body).toEqual(first.body);
@@ -52,7 +54,7 @@ describe('GET /api/weather/current', () => {
     const url = new URL(global.fetch.mock.calls[0][0]);
     expect(url.origin + url.pathname).toBe('https://api.open-meteo.com/v1/forecast');
     expect(url.searchParams.get('current')).toBe(
-      'temperature_2m,wind_speed_10m,wind_direction_10m'
+      'temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,wind_direction_10m'
     );
     expect(url.searchParams.get('timezone')).toBe('Europe/Madrid');
   });
