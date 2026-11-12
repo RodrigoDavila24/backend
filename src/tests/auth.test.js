@@ -198,6 +198,7 @@ describe('authentication API', () => {
 
     it.each([
       ['post', '/api/routes/fastest'],
+      ['post', '/api/routes/recommended'],
       ['get', '/api/geocoding/autocomplete?text=Plaza']
     ])('protects %s %s', async (method, url) => {
       const response = await request(createApp())[method](url);
