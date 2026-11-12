@@ -1,7 +1,8 @@
 const request = require('supertest');
 
 // The whole chain is real (rule, weighted route, shade and wind exposure); only the outside world is
-// simulated: Open-Meteo through fetch, OpenRouteService and the PostGIS queries.
+// simulated: Open-Meteo through fetch, OpenRouteService and the PostGIS queries (also the openness of
+// the streets of PBI-8.3).
 jest.mock('../api/middleware/requireAuth', () => ({
   requireAuth: (_req, _res, next) => next()
 }));
@@ -11,12 +12,14 @@ jest.mock('../integrations/openRouteService/directionsClient', () => ({
 }));
 jest.mock('../repositories/routeSegmentRepository', () => ({ findSegmentsForRoutes: jest.fn() }));
 jest.mock('../services/shadow/exposureService', () => ({ calculateSegmentExposures: jest.fn() }));
+jest.mock('../repositories/opennessRepository', () => ({ findOpennessNearPoints: jest.fn() }));
 
 const { createApp } = require('../app');
 const {
   getAlternativeWalkingRoutes,
   getFastestWalkingRoute
 } = require('../integrations/openRouteService/directionsClient');
+const { findOpennessNearPoints } = require('../repositories/opennessRepository');
 const { findSegmentsForRoutes } = require('../repositories/routeSegmentRepository');
 const { calculateSegmentExposures } = require('../services/shadow/exposureService');
 const { clearWeatherCache } = require('../services/weather/weatherService');
@@ -106,6 +109,9 @@ describe('POST /api/routes/recommended', () => {
     clearWeatherCache();
     getFastestWalkingRoute.mockResolvedValue(FASTEST);
     getAlternativeWalkingRoutes.mockResolvedValue([FASTEST, ALTERNATIVE]);
+    // Every piece in a canyon (openness 0, ADR-028): only the wind along the street counts, so the
+    // controlled wind cases do not depend on the buildings.
+    findOpennessNearPoints.mockImplementation(async (points) => points.map(() => 0));
     findSegmentsForRoutes.mockResolvedValue([
       { routeIndex: 0, segmentId: 1, overlapLengthM: 1000 },
       { routeIndex: 1, segmentId: 2, overlapLengthM: 1600 }
@@ -213,6 +219,8 @@ describe('POST /api/routes/recommended', () => {
     });
     expect(result.comparison.windChangePoints).toBeLessThan(-5);
     expect(calculateSegmentExposures).not.toHaveBeenCalled();
+    // The wind exposure of the routes uses the openness of the streets (PBI-8.3), in one query.
+    expect(findOpennessNearPoints).toHaveBeenCalledTimes(1);
   });
 
   it('heat and cierzo: shade and wind weigh together', async () => {
