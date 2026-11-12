@@ -14,7 +14,6 @@ const ATTRIBUTES = [
   'vegetationWeight',
   'maxDetourPercentage'
 ];
-const DUPLICATE_NAME = 'Ya tienes una ruta con ese nombre.';
 
 function toProfile(row) {
   return {
@@ -38,12 +37,27 @@ const weightColumns = (weights) => ({
   vegetationWeight: weights.vegetation ?? 0
 });
 
-function withDuplicateName(operation) {
-  return operation.catch((error) => {
-    if (error instanceof UniqueConstraintError) {
-      throw httpError(409, DUPLICATE_NAME, { name: DUPLICATE_NAME });
-    }
-    throw error;
+/*
+ * The unique index (user_id, lower(btrim(name))) decides; then the route that already has the name
+ * is looked up the same way, so the 409 can say which one it is (existingId) and the frontend can
+ * offer to replace it.
+ */
+function withDuplicateName(operation, userId, name, editedId = null) {
+  return operation.catch(async (error) => {
+    if (!(error instanceof UniqueConstraintError)) throw error;
+    const [existing] = await sequelize.query(
+      `SELECT id, btrim(name) AS name FROM route_profiles
+       WHERE user_id = :userId AND lower(btrim(name)) = lower(btrim(:name)) AND id <> :editedId
+       ORDER BY id LIMIT 1`,
+      {
+        replacements: { userId, name, editedId: editedId ?? 0 },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+    const message = `Ya tienes una ruta llamada «${existing?.name ?? name}».`;
+    const duplicate = httpError(409, message, { name: message });
+    if (existing) duplicate.existingId = existing.id;
+    throw duplicate;
   });
 }
 
@@ -93,7 +107,9 @@ async function createForUser(userId, { name, weights, maxDetourPercentage }) {
       name,
       ...weightColumns(weights),
       maxDetourPercentage
-    })
+    }),
+    userId,
+    name
   );
   return toProfile(row.get({ plain: true }));
 }
@@ -103,7 +119,10 @@ async function updateForUser(userId, id, { name, weights, maxDetourPercentage })
     RouteProfile.update(
       { name, ...weightColumns(weights), maxDetourPercentage },
       { where: { id, userId } }
-    )
+    ),
+    userId,
+    name,
+    id
   );
   if (!updated) return null;
   return toProfile(await RouteProfile.findByPk(id, { attributes: ATTRIBUTES, raw: true }));

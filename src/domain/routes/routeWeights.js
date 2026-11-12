@@ -21,6 +21,15 @@ const PRESET_PROFILES = [
   { presetKey: 'sunny', name: 'Soleada', weights: { shade: 0, sun: 50, wind: 0, vegetation: 0 } }
 ].map((preset) => ({ ...preset, maxDetourPercentage: DEFAULT_MAX_DETOUR_PERCENTAGE }));
 
+// The recommended route (PBI-9.1) is not a saved route, but it is shown among them: no saved route
+// may take its name.
+const RESERVED_PROFILE_NAME = 'Recomendada';
+const RESERVED_NAME_MESSAGE = `«${RESERVED_PROFILE_NAME}» es la ruta automática: elige otro nombre.`;
+
+// Names are compared without case or surrounding spaces; accents still count ("Rapida" is not
+// "Rápida"), as in the unique index of route_profiles.
+const profileNameKey = (name) => name.trim().toLowerCase();
+
 // Shade and sun are the two ends of one scale (ADR-030): a route seeks one, the other or neither.
 const SHADE_AND_SUN_MESSAGE = 'Elige sombra o sol, no los dos a la vez.';
 
@@ -78,6 +87,9 @@ function parseProfileInput(input) {
       name: `Escribe un nombre de 1 a ${MAX_PROFILE_NAME_LENGTH} caracteres.`
     });
   }
+  if (profileNameKey(name) === profileNameKey(RESERVED_PROFILE_NAME)) {
+    throw httpError(400, 'El nombre no es válido.', { name: RESERVED_NAME_MESSAGE });
+  }
   return {
     name,
     weights: parseWeights(input.weights),
@@ -91,6 +103,8 @@ module.exports = {
   MAX_PROFILE_NAME_LENGTH,
   MAX_WEIGHT,
   PRESET_PROFILES,
+  RESERVED_NAME_MESSAGE,
+  RESERVED_PROFILE_NAME,
   SHADE_AND_SUN_MESSAGE,
   WEIGHT_FACTORS,
   hasEnvironmentalWeight,
@@ -98,5 +112,6 @@ module.exports = {
   hasVegetationWeight,
   parseMaxDetour,
   parseProfileInput,
-  parseWeights
+  parseWeights,
+  profileNameKey
 };
