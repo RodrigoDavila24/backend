@@ -69,6 +69,14 @@ describe('weighted route service', () => {
     });
   });
 
+  it('rejects shade and sun at once before asking ORS or Open-Meteo (ADR-030)', async () => {
+    await expect(
+      calculateWeightedRouteComparison({ ...input, weights: { shade: 50, sun: 50 } }, dependencies)
+    ).rejects.toMatchObject({ status: 400, fields: { shade: expect.any(String) } });
+    expect(routesProvider).not.toHaveBeenCalled();
+    expect(weather).not.toHaveBeenCalled();
+  });
+
   it('chooses the alternative that suits the weights', async () => {
     const result = await calculateWeightedRouteComparison(
       { ...input, weights: { shade: 50, sun: 0 } },

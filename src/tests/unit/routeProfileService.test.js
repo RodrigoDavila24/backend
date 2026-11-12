@@ -46,6 +46,18 @@ describe('route profile service', () => {
     expect(repository.createForUser).not.toHaveBeenCalled();
   });
 
+  it('does not save or update a route with shade and sun at once (ADR-030)', async () => {
+    const both = { ...input, weights: { shade: 40, sun: 40, wind: 0 } };
+
+    await expect(service.create(7, both)).rejects.toMatchObject({
+      status: 400,
+      fields: { shade: expect.any(String), sun: expect.any(String) }
+    });
+    await expect(service.update(7, 4, both)).rejects.toMatchObject({ status: 400 });
+    expect(repository.createForUser).not.toHaveBeenCalled();
+    expect(repository.updateForUser).not.toHaveBeenCalled();
+  });
+
   it('updates only an existing route of the user', async () => {
     repository.updateForUser.mockResolvedValueOnce({ id: 4, ...input });
     await expect(service.update(7, '4', input)).resolves.toMatchObject({ id: 4 });

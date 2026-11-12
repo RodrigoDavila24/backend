@@ -50,6 +50,27 @@ describe('route weights', () => {
     }
   );
 
+  it('rejects shade and sun at the same time, with a message for each (ADR-030)', () => {
+    expect(() => parseWeights({ shade: 50, sun: 5 })).toThrow(
+      expect.objectContaining({
+        status: 400,
+        fields: {
+          shade: 'Elige sombra o sol, no los dos a la vez.',
+          sun: 'Elige sombra o sol, no los dos a la vez.'
+        }
+      })
+    );
+  });
+
+  it.each([
+    [{ shade: 50, sun: 0 }],
+    [{ shade: 0, sun: 100 }],
+    [{ shade: 0, sun: 0, wind: 80 }],
+    [{ shade: 100, wind: 100 }]
+  ])('accepts one side of the shade-sun scale: %j', (weights) => {
+    expect(() => parseWeights(weights)).not.toThrow();
+  });
+
   it.each([null, [], 'shade'])('rejects weights that are not an object: %j', (weights) => {
     expect(() => parseWeights(weights)).toThrow(expect.objectContaining({ status: 400 }));
   });

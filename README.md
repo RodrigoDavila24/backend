@@ -829,6 +829,15 @@ Sombreada (50/0/0) y Soleada (0/50/0), las tres con un 25 % de tiempo extra y el
 rutas guardadas antes de la PBI-8.2 tienen el viento a 0 (migración
 `20261106000001-add-route-profile-wind-weight`).
 
+Sombra y sol son una sola escala (ADR-030, en DECISIONS.md de la carpeta docs del Drive del equipo):
+como mucho uno de los dos es mayor que 0. La migración `20261112000001-exclusive-shade-sun` corrige
+las rutas guardadas con los dos (deja el mayor, o los dos a 0 si son iguales, como se anulaban en el
+coste) y añade la restricción `route_profiles_exclusive_shade_sun`
+(`CHECK (NOT (shade_weight > 0 AND sun_weight > 0))`). Al aplicarse escribe en el log cuántas ha
+corregido, p. ej. `INFO exclusive-shade-sun: 0 route profile(s) had shade and sun at once and were
+fixed`; conviene apuntar ese número al desplegar. El `down` solo quita la restricción: los pesos
+corregidos no se recuperan.
+
 ### `GET /api/route-profiles`
 
 ```json
@@ -840,7 +849,9 @@ rutas guardadas antes de la PBI-8.2 tienen el viento a 0 (migración
 Cuerpo `{ "name": "Verano", "weights": { "shade": 80, "sun": 0, "wind": 20 }, "maxDetourPercentage": 10 }`
 (un peso que falta cuenta como 0; `maxDetourPercentage` es opcional; por defecto, 25). Responden `201` o `200` con
 `{ "profile": ... }`. Errores: `400` con `fields` si el nombre (1 a 40 caracteres) o un peso no son
-válidos, `409` si el nombre ya existe para ese usuario o tiene ya 20 rutas, y `404` si la ruta no es
+válidos, o si `shade` y `sun` son mayores que 0 a la vez (`fields.shade` y `fields.sun`: "Elige sombra
+o sol, no los dos a la vez."; ver ADR-030 en DECISIONS.md, en la carpeta docs del Drive del equipo;
+`POST /api/routes/weighted` responde igual), `409` si el nombre ya existe para ese usuario o tiene ya 20 rutas, y `404` si la ruta no es
 suya.
 
 ### `DELETE /api/route-profiles/:id`

@@ -17,6 +17,9 @@ const PRESET_PROFILES = [
   { presetKey: 'sunny', name: 'Soleada', weights: { shade: 0, sun: 50, wind: 0 } }
 ].map((preset) => ({ ...preset, maxDetourPercentage: DEFAULT_MAX_DETOUR_PERCENTAGE }));
 
+// Shade and sun are the two ends of one scale (ADR-030): a route seeks one, the other or neither.
+const SHADE_AND_SUN_MESSAGE = 'Elige sombra o sol, no los dos a la vez.';
+
 function hasEnvironmentalWeight(weights) {
   return WEIGHT_FACTORS.some((factor) => weights[factor] > 0);
 }
@@ -41,6 +44,12 @@ function parseWeights(weights) {
     }
   });
   if (Object.keys(fields).length) throw httpError(400, 'Los pesos no son válidos.', fields);
+  if (parsed.shade > 0 && parsed.sun > 0) {
+    throw httpError(400, 'Los pesos no son válidos.', {
+      shade: SHADE_AND_SUN_MESSAGE,
+      sun: SHADE_AND_SUN_MESSAGE
+    });
+  }
   return parsed;
 }
 
@@ -73,6 +82,7 @@ module.exports = {
   MAX_PROFILE_NAME_LENGTH,
   MAX_WEIGHT,
   PRESET_PROFILES,
+  SHADE_AND_SUN_MESSAGE,
   WEIGHT_FACTORS,
   hasEnvironmentalWeight,
   hasShadeWeight,
