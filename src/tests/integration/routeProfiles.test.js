@@ -25,9 +25,9 @@ describe('route profiles (PostgreSQL)', () => {
     ]);
 
     expect(first.map(({ name, presetKey, weights }) => [name, presetKey, weights])).toEqual([
-      ['Rápida', 'fastest', { shade: 0, sun: 0, wind: 0 }],
-      ['Sombreada', 'shaded', { shade: 50, sun: 0, wind: 0 }],
-      ['Soleada', 'sunny', { shade: 0, sun: 50, wind: 0 }]
+      ['Rápida', 'fastest', { shade: 0, sun: 0, wind: 0, vegetation: 0 }],
+      ['Sombreada', 'shaded', { shade: 50, sun: 0, wind: 0, vegetation: 0 }],
+      ['Soleada', 'sunny', { shade: 0, sun: 50, wind: 0, vegetation: 0 }]
     ]);
     expect(again).toEqual(first);
     expect(other).toHaveLength(3);
@@ -85,7 +85,7 @@ describe('route profiles (PostgreSQL)', () => {
       weights: { shade: 0, sun: 0, wind: 70 },
       maxDetourPercentage: 25
     });
-    expect(windy.weights).toEqual({ shade: 0, sun: 0, wind: 70 });
+    expect(windy.weights).toEqual({ shade: 0, sun: 0, wind: 70, vegetation: 0 });
     await expect(
       routeProfileRepository.updateForUser(ana.id, summer.id, {
         name: 'Sombreada',

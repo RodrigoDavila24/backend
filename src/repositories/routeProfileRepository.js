@@ -11,6 +11,7 @@ const ATTRIBUTES = [
   'shadeWeight',
   'sunWeight',
   'windWeight',
+  'vegetationWeight',
   'maxDetourPercentage'
 ];
 const DUPLICATE_NAME = 'Ya tienes una ruta con ese nombre.';
@@ -20,7 +21,12 @@ function toProfile(row) {
     id: row.id,
     name: row.name,
     presetKey: row.presetKey,
-    weights: { shade: row.shadeWeight, sun: row.sunWeight, wind: row.windWeight },
+    weights: {
+      shade: row.shadeWeight,
+      sun: row.sunWeight,
+      wind: row.windWeight,
+      vegetation: row.vegetationWeight
+    },
     maxDetourPercentage: row.maxDetourPercentage
   };
 }
@@ -28,7 +34,8 @@ function toProfile(row) {
 const weightColumns = (weights) => ({
   shadeWeight: weights.shade,
   sunWeight: weights.sun,
-  windWeight: weights.wind ?? 0
+  windWeight: weights.wind ?? 0,
+  vegetationWeight: weights.vegetation ?? 0
 });
 
 function withDuplicateName(operation) {

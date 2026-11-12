@@ -33,9 +33,11 @@ describe('weighted route service', () => {
   const fastestRouteCalculator = jest.fn();
   const weather = jest.fn();
   const findOpennessNearPoints = jest.fn();
+  const findGreenRatios = jest.fn();
   const dependencies = {
     weather,
     opennessRepository: { findOpennessNearPoints },
+    vegetationRepository: { findGreenRatios },
     alternativesProvider: routesProvider,
     routeSegmentRepository: { findSegmentsForRoutes },
     exposureCalculator,
@@ -50,6 +52,13 @@ describe('weighted route service', () => {
     weather.mockResolvedValue({ windSpeed: 5, windDirection: 0, time: '2026-06-21T14:00' });
     // Canyons by default: the model of PBI-8.2, only the wind along the streets counts.
     findOpennessNearPoints.mockImplementation(async (points) => points.map(() => 0));
+    // The fastest route has no green, the alternative half of it (PBI-10 phase B).
+    findGreenRatios.mockResolvedValue(
+      new Map([
+        [1, 0],
+        [2, 0.5]
+      ])
+    );
     // A sunny fastest route and a shaded alternative 10 % longer.
     routesProvider.mockResolvedValue([
       { geometry: geometry(), distance: 1000, duration: 600 },

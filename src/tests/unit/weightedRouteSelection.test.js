@@ -31,14 +31,14 @@ describe('route weights', () => {
       true
     );
     expect(PRESET_PROFILES.map(({ name, weights }) => [name, weights])).toEqual([
-      ['Rápida', { shade: 0, sun: 0, wind: 0 }],
-      ['Sombreada', { shade: 50, sun: 0, wind: 0 }],
-      ['Soleada', { shade: 0, sun: 50, wind: 0 }]
+      ['Rápida', { shade: 0, sun: 0, wind: 0, vegetation: 0 }],
+      ['Sombreada', { shade: 50, sun: 0, wind: 0, vegetation: 0 }],
+      ['Soleada', { shade: 0, sun: 50, wind: 0, vegetation: 0 }]
     ]);
   });
 
   it('accepts whole percentages and treats a missing factor as 0', () => {
-    expect(parseWeights({ shade: 100 })).toEqual({ shade: 100, sun: 0, wind: 0 });
+    expect(parseWeights({ shade: 100 })).toEqual({ shade: 100, sun: 0, wind: 0, vegetation: 0 });
     expect(hasEnvironmentalWeight({ shade: 0, sun: 0 })).toBe(false);
     expect(hasEnvironmentalWeight({ shade: 0, sun: 1 })).toBe(true);
   });
@@ -78,7 +78,7 @@ describe('route weights', () => {
   it('validates the name of a saved route', () => {
     expect(parseProfileInput({ name: '  Verano ', weights: { shade: 80 } })).toEqual({
       name: 'Verano',
-      weights: { shade: 80, sun: 0, wind: 0 },
+      weights: { shade: 80, sun: 0, wind: 0, vegetation: 0 },
       maxDetourPercentage: 25
     });
     expect(
