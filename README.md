@@ -889,6 +889,67 @@ pesos a 0, `fastest_only` (solo se pide la ruta rápida).
   está más resguardada). `shadeChangePercentagePoints` es `null` si no hay sombras.
 - `wind` no válido (velocidad de 0 a 200 km/h, dirección de 0 a 360°) → `400` con `fields`.
 
+#### La vegetación en las rutas (PBI-10, fase B)
+
+Ver ADR-026 y ADR-031 en DECISIONS.md, en la carpeta docs del Drive del equipo.
+
+- **Peso `weights.vegetation`** (0-100 %): un factor más, independiente de la sombra. Penaliza lo
+  que no es verde: `100 − % verde`. El coste queda
+  `duración × (1 + (peso_sombra × %sol + peso_sol × %sombra + peso_viento × exposición_viento +
+  peso_vegetación × (100 − %verde)) / 10000)`, con la misma mejora mínima de 5 puntos.
+- **% verde de cada ruta** (`fastest.vegetation` y `selected.vegetation`): media del `green_ratio`
+  de sus tramos (`segment_vegetation`, `npm run compute:vegetation`) ponderada por la longitud de
+  ruta sobre cada uno. Necesita, como la sombra, datos para el 80 % de la ruta; si no,
+  `status: "unavailable"` con `reason: "insufficient_segment_coverage"`. No depende del Sol: una
+  ruta que solo pesa el verde funciona de noche y no calcula sombras.
+- **Cuándo se calcula:** si pesan el verde, la sombra o el sol (los tramos de la ruta ya se buscan
+  para la sombra). Con solo viento, o en la ruta rápida sin pesos, `vegetation.reason` es
+  `not_requested`.
+- `greenChangePercentagePoints`: % verde de `selected` menos el de `fastest`.
+- **Rutas guardadas:** columna `vegetation_weight`, 0 por defecto (migración
+  `20261112000002-add-route-profile-vegetation-weight`); `/api/route-profiles` acepta y devuelve
+  `weights.vegetation`. No hay ruta predefinida "Verde": cada usuario crea la suya.
+
+Ejemplo real (2026-11-12, Plaza del Pilar → Plaza San Francisco, a las 23:00):
+
+```json
+{
+  "origin": { "lat": 41.657204, "lng": -0.880394 },
+  "destination": { "lat": 41.641356, "lng": -0.895734 },
+  "date": "2026-11-12", "time": "23:00", "timeZone": "Europe/Madrid",
+  "weights": { "vegetation": 100 }
+}
+```
+
+```json
+{
+  "comparison": {
+    "status": "selected",
+    "weights": { "shade": 0, "sun": 0, "wind": 0, "vegetation": 100 },
+    "fastest": {
+      "duration": 1831.1,
+      "distance": 2543.3,
+      "vegetation": {
+        "status": "available", "reason": null, "coverageRatio": 1, "coveragePercentage": 100,
+        "greenPercentage": 30.875393221827125
+      }
+    },
+    "selected": {
+      "duration": 1856.1,
+      "distance": 2578,
+      "vegetation": {
+        "status": "available", "reason": null, "coverageRatio": 1, "coveragePercentage": 100,
+        "greenPercentage": 50.0666463059684
+      }
+    },
+    "additionalDurationSeconds": 25,
+    "greenChangePercentagePoints": 19.191253084141273
+  }
+}
+```
+
+(Recortado: cada ruta trae también su geometría, pasos, `exposure` y `windExposure`.)
+
 ## Ruta recomendada (PBI-9.1)
 
 `POST /api/routes/recommended` elige los pesos de la ruta con el tiempo actual de Open-Meteo y la
@@ -1104,6 +1165,27 @@ códigos controlados que `/api/routes/fastest`; si el cálculo de sombras supera
 pero no añade migraciones ni dependencias.
 
 ## Checklist de verificación manual
+
+### PBI-10 (fase B) - La vegetación en las rutas
+
+Con la vegetación calculada (`npm run compute:vegetation`, checklist de la fase A), la migración
+aplicada (`npm run db:migrate`), el servidor arrancado y `$h` como en la checklist de la PBI-9.1.
+
+- [ ] `POST /api/routes/weighted` de Plaza del Pilar (41.657204, -0.880394) a Plaza San Francisco
+      (41.641356, -0.895734) con `"weights": { "vegetation": 100 }` y `"time": "23:00"` →
+      `status: "selected"`; la rápida, 30,5 min y 30,9 % verde; la elegida, 30,9 min y 50,1 %
+      verde (`greenChangePercentagePoints` 19,2). Funciona de noche: no se calculan sombras.
+- [ ] Con `"vegetation": 30` elige la misma; con los pesos a 0, `fastest_only` y sin `vegetation`.
+- [ ] Con `"weights": { "shade": 50 }` las rutas traen también su `vegetation`; con solo
+      `"wind"`, `vegetation.reason` es `not_requested`.
+- [ ] Prueba real del 2026-11-12 en otros cinco trayectos con `"vegetation": 100` y +25 % / +40 %:
+      el % verde de la rápida sale entre el 28 % y el 64 % en cerca de 1 s, pero se queda la rápida
+      porque las alternativas de ORS apenas se diferencian en verde (Plaza de España → Parque
+      Grande: +4,9 puntos, por debajo de la mejora mínima de 5).
+- [ ] `POST /api/route-profiles` con `"weights": { "vegetation": 70 }` la guarda; `GET` devuelve
+      `vegetation` (0 en las rutas anteriores y en las predefinidas); `"vegetation": 101` → `400`.
+- [ ] `npm run ci` y `npm run test:all` pasan (integración: `routeProfiles.test.js` y
+      `vegetation.test.js`).
 
 ### PBI-9.1 - Ruta recomendada
 
